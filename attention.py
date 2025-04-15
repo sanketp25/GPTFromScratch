@@ -363,44 +363,48 @@ Now implementing the Multihead attention for efficient matrix multiplication in 
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, 
-                 d_in,
-                 d_out,
-                 context_length,
-                 dropout,
-                 num_heads,
+                 d_in, #768
+                 d_out, #768
+                 context_length, #1024
+                 dropout, #0.1
+                 num_heads, # 12
                  qkv_bias=False
                  ) -> None:
         super().__init__()
         assert (d_out % num_heads ==0,"d_out must be divisible by num_heads")
         self.d_out = d_out
-        self.num_heads=num_heads
-        self.head_dim = d_out // num_heads  #2/2 = 1
+        self.num_heads=num_heads # 12
+        self.head_dim = d_out // num_heads  #2/2 = 1 --> 768 // 12 = 64
         self.W_query = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_key = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_value = nn.Linear(d_in, d_out, bias= qkv_bias)
         self.out_proj = nn.Linear(d_out, d_out)
         self.dropout = nn.Dropout(dropout)
-        self.register_buffer('mask', torch.triu(torch.ones(context_length, context_length),diagonal=1)) 
+        self.context_length = context_length # 1024
+        self.register_buffer('mask', torch.triu(torch.ones(self.context_length, self.context_length),diagonal=1)) 
     def forward(self, x):
-        b, num_tokens, d_in = x.shape # 2x6x3
-        queries = self.W_query(x) #2x6x2
-        keys = self.W_key(x)
-        values = self.W_value(x)
+        b, num_tokens, d_in = x.shape # 2x6x3 --> 2x4x768
+        queries = self.W_query(x) #2x6x2 --> 2x4x768
+        keys = self.W_key(x) # 2x4x768
+        values = self.W_value(x) # 2x4x768
+        print("Shape of queries before view: ",queries.shape)
 
         queries = queries.view(b, num_tokens, self.num_heads, self.head_dim) # 2x6x2x1
-        keys = keys.view(b, num_tokens, self.num_heads, self.head_dim)
-        values = values.view(b, num_tokens, self.num_heads, self.head_dim)
+        keys = keys.view(b, num_tokens, self.num_heads, self.head_dim) # 2x4x12x64
+        values = values.view(b, num_tokens, self.num_heads, self.head_dim) # 2x4x12x64
 
         #Transposes from shape (b, num_tokens, num_heads, head_dim) to (b, num_heads, num_tokens, head_dim)
 
-        queries = queries.transpose(1,2)
+        queries = queries.transpose(1,2) # 2x12x4x64
         keys = keys.transpose(1,2)
         values =values.transpose(1,2)
 
         # this done to perfom calculations on the heads
-
-        attn_scores = queries @ keys.transpose(2,3)
-        mask_bool = self.mask.bool()[:context_length, :context_length]
+        print("In MHA, shape of queries: ",queries.shape)
+        print("In MHA, shape of keys: ",keys.transpose(2,3).shape)
+        attn_scores = queries @ keys.transpose(2,3)  # 2x2x6x1 X 2x2x1x6
+        print("In MHA, shape of attn_scores: ",attn_scores.shape) # 2x2x6x6
+        mask_bool = self.mask.bool()[:self.context_length, :self.context_length]
         attn_scores.masked_fill(mask_bool, -torch.inf)
         attn_weights = torch.softmax(attn_scores / keys.shape[-1] ** 0.5, dim=-1)
         attn_weights = self.dropout(attn_weights)
@@ -410,7 +414,7 @@ class MultiHeadAttention(nn.Module):
         return context_vec
 
 torch.manual_seed(123)
-batch_size, context_length, d_in = batch.shape
+batch_size, context_length, d_in = batch.shape #2x6x3
 d_out = 2
 mha = MultiHeadAttention(d_in, d_out, context_length, 0.0, num_heads=2)
 context_vecs = mha(batch)
