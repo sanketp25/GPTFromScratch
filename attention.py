@@ -381,13 +381,13 @@ class MultiHeadAttention(nn.Module):
         self.out_proj = nn.Linear(d_out, d_out)
         self.dropout = nn.Dropout(dropout)
         self.context_length = context_length # 1024
-        self.register_buffer('mask', torch.triu(torch.ones(self.context_length, self.context_length),diagonal=1)) 
+        self.register_buffer("mask", torch.triu(torch.ones(context_length, context_length),diagonal=1)) 
     def forward(self, x):
         b, num_tokens, d_in = x.shape # 2x6x3 --> 2x4x768
         queries = self.W_query(x) #2x6x2 --> 2x4x768
         keys = self.W_key(x) # 2x4x768
         values = self.W_value(x) # 2x4x768
-        print("Shape of queries before view: ",queries.shape)
+        # print("Shape of queries before view: ",queries.shape)
 
         queries = queries.view(b, num_tokens, self.num_heads, self.head_dim) # 2x6x2x1
         keys = keys.view(b, num_tokens, self.num_heads, self.head_dim) # 2x4x12x64
@@ -400,11 +400,11 @@ class MultiHeadAttention(nn.Module):
         values =values.transpose(1,2)
 
         # this done to perfom calculations on the heads
-        print("In MHA, shape of queries: ",queries.shape)
-        print("In MHA, shape of keys: ",keys.transpose(2,3).shape)
+        # print("In MHA, shape of queries: ",queries.shape)
+        # print("In MHA, shape of keys: ",keys.transpose(2,3).shape)
         attn_scores = queries @ keys.transpose(2,3)  # 2x2x6x1 X 2x2x1x6
-        print("In MHA, shape of attn_scores: ",attn_scores.shape) # 2x2x6x6
-        mask_bool = self.mask.bool()[:self.context_length, :self.context_length]
+        # print("In MHA, shape of attn_scores: ",attn_scores.shape) # 2x2x6x6
+        mask_bool = self.mask.bool()[:num_tokens, :num_tokens]
         attn_scores.masked_fill(mask_bool, -torch.inf)
         attn_weights = torch.softmax(attn_scores / keys.shape[-1] ** 0.5, dim=-1)
         attn_weights = self.dropout(attn_weights)
