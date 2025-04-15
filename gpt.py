@@ -5,7 +5,7 @@ from attention import MultiHeadAttention
 
 GPT_CONFIG_124M = {
 "vocab_size": 50257, # Vocabulary size
-"context_length": 1024, # Context length
+"context_length": 4, # Context length
 "emb_dim": 768, # Embedding dimension
 "n_heads": 12, # Number of attention heads
 "n_layers": 12, # Number of layers
@@ -239,12 +239,103 @@ class TransformerBlock(nn.Module):
         return x
     
 torch.manual_seed(123)
-x = torch.rand(2, 1024, 768)
+x = torch.rand(2, 4, 768)
 block = TransformerBlock(GPT_CONFIG_124M)
 output = block(x)
 print("Input shape:", x.shape)
 print("Output shape:", output.shape)    
 
+"""
+Creating the GPT model 
+
+"""
+
+class GPTModel(nn.Module):
+    def __init__(self, cfg) -> None:
+        super().__init__()
+        self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"])
+        self.pos_emb = nn.Embedding(cfg["context_length"], cfg["emb_dim"])
+        self.drop_emb = nn.Dropout(cfg["drop_rate"])
+        self.trf_blocks = nn.Sequential(
+            *[TransformerBlock(cfg) for _ in range(cfg["n_layers"])] # stack 12 transformer blocks sequentially
+        )
+        self.final_norm = LayerNorm(cfg["emb_dim"])
+        self.out_head = nn.Linear(cfg["emb_dim"], cfg["vocab_size"])
+    def forward(self, in_idx):
+        batch_size, seq_len = in_idx.shape
+        tok_embeds = self.tok_emb(in_idx)
+        pos_indices = torch.arange(seq_len).to(in_idx.device)
+        pos_embeds = self.pos_emb(pos_indices)
+        x = tok_embeds + pos_embeds
+        x = self.drop_emb(x)
+        x = self.trf_blocks(x)
+        x = self.final_norm(x)
+        logits = self.out_head(x)
+        return logits
 
 
+torch.manual_seed(123)
+model = GPTModel(GPT_CONFIG_124M)
+out = model(batch)
+print("Input batch:\n", batch)
+print("\nOutput shape:", out.shape)
+print(out)
 
+print("-"*50)
+total_params = sum(p.numel() for p in model.parameters()) 
+print(f"Total number of parameters: {total_params:,}") # 162,276,433
+
+"""
+The parameters are more because of the concept of weight tying, the GPT model reuses weights from the token 
+embedding layer in its output layer
+"""
+
+print("Token embedding layer shape:", model.tok_emb.weight.shape) # [50257, 768]
+print("Output layer shape:", model.out_head.weight.shape) # [50257, 768]
+# removing the weights from the output layer..
+total_params_gpt2 = (total_params - sum(p.numel() for p in model.out_head.parameters()))
+print(f"Number of trainable parameters considering weight tying: {total_params_gpt2:,}") # 123,628,800
+
+"""
+Generating using GPT model
+
+Look at the last token from the generated vectors, use softmax on the vectors and select the token with
+highest probability. Append the token to the current token and keep on repeating
+
+Inputs:
+    model: GPT model
+    idx: Array of (batch, n_tokens)
+    max_new_tokens: tokens to generate
+    context_size: context_length (max number of tokens model can handle)
+Returns:
+    idx: batch, n_tokens+ max_new_tokens   
+"""
+
+def generate_text_simple(model, idx, max_new_tokens, context_size):
+    for _ in range(max_new_tokens):
+        # if LLM supports only 5 tokens, and the context size is 10,then only the last 5 tokens are used as context
+        idx_cond = idx[:, -context_size:]
+        with torch.no_grad():
+            logits = model(idx_cond)
+
+        logits = logits[:,-1,:] # taking the last row from each batch
+        probas = torch.softmax(logits, dim=-1)
+        idx_next = torch.argmax(probas, dim=-1, keepdim=True)
+        idx = torch.cat((idx, idx_next), dim=1) # concatenate on the token dimension.
+    return idx    
+
+start_context = "Hello, I am a big" 
+encoded = tokenizer.encode(start_context)
+print("encoded:", encoded) # [15496, 11, 314, 716]
+encoded_tensor = torch.tensor(encoded).unsqueeze(0) # adds batch dimension 
+print("Encode Tensor with batch: ", encoded_tensor) # tensor([[15496,    11,   314,   716]])
+print("encoded_tensor.shape:", encoded_tensor.shape) # 1x4
+
+# using model.eval to generate the text
+
+model.eval()
+out = generate_text_simple(model=model, idx=encoded_tensor,max_new_tokens=6,context_size=GPT_CONFIG_124M["context_length"])
+print("Output: ", out)
+
+decoded_text = tokenizer.decode(out.squeeze(0).tolist())
+print(decoded_text)

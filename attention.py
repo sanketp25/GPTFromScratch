@@ -365,7 +365,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, 
                  d_in, #768
                  d_out, #768
-                 context_length, #1024
+                 context_length, #4
                  dropout, #0.1
                  num_heads, # 12
                  qkv_bias=False
