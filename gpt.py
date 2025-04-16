@@ -228,7 +228,7 @@ class TransformerBlock(nn.Module):
     def forward(self, x):
         shortcut = x
         x = self.norm1(x)
-        print("shape of x: ",x.shape)
+        # print("shape of x: ",x.shape)
         x = self.att(x)
         x = self.drop_shortcut(x) + shortcut
 
